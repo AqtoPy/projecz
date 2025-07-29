@@ -3,58 +3,68 @@ extends Area2D
 # Настройки
 @export var bullet_scene: PackedScene = preload("res://scenes/Bullet.tscn")
 @export var max_health: int = 100
-@export var missiles_to_defeat: int = 10  # Цель для победы
+@export var max_missiles_missed: int = 5     # Макс пропущенных ракет
+@export var fire_rate: float = 0.2           # Задержка между выстрелами
+@export var rotation_speed: float = 5.0      # Скорость поворота
 
+# Состояние
 var current_health: int
-var missiles_defeated: int = 0
+var missiles_missed: int = 0
+var missiles_destroyed: int = 0
 var can_shoot: bool = true
+var target_direction: Vector2 = Vector2.UP
 
-@onready var health_label: Label = $HealthLabel
-@onready var missile_counter: Label = $MissileCounter
+@onready var sprite: Sprite2D = $Sprite2D
 @onready var shoot_timer: Timer = $ShootTimer
+@onready var health_label: Label = $UI/HealthLabel
+@onready var missiles_label: Label = $UI/MissilesLabel
 
 func _ready():
-	current_health = max_health
-	update_ui()
+    current_health = max_health
+    update_ui()
+    add_to_group("player")  # Для homing-ракет
+    shoot_timer.wait_time = fire_rate
+
+func _process(delta):
+    # Поворот пушки к курсору
+    var mouse_pos = get_global_mouse_position()
+    target_direction = (mouse_pos - global_position).normalized()
+    sprite.rotation = lerp_angle(sprite.rotation, target_direction.angle(), rotation_speed * delta)
 
 func _input(event):
-	if event is InputEventMouseButton and event.pressed and can_shoot:
-		shoot()
-		can_shoot = false
-		shoot_timer.start(0.3)  # Задержка между выстрелами
+    if event.is_action_pressed("shoot") and can_shoot:
+        shoot()
+        can_shoot = false
+        shoot_timer.start()
 
 func shoot():
-	var bullet = bullet_scene.instantiate()
-	bullet.position = global_position
-	bullet.direction = (get_global_mouse_position() - global_position).normalized()
-	get_parent().add_child(bullet)
+    var bullet = bullet_scene.instantiate()
+    bullet.position = global_position
+    bullet.direction = target_direction  # Пуля летит куда направлена пушка
+    get_parent().add_child(bullet)
 
-func take_damage(damage: int):
-	current_health -= damage
-	update_ui()
-	if current_health <= 0:
-		game_over()
+func take_damage(amount: int):
+    current_health -= amount
+    update_ui()
+    if current_health <= 0:
+        game_over()
 
 func on_missile_destroyed():
-	missiles_defeated += 1
-	update_ui()
-	if missiles_defeated >= missiles_to_defeat:
-		victory()
+    missiles_destroyed += 1
+    update_ui()
+
+func on_missile_missed():
+    missiles_missed += 1
+    update_ui()
+    if missiles_missed >= max_missiles_missed:
+        game_over()
 
 func update_ui():
-	health_label.text = "HP: %d" % current_health
-	missile_counter.text = "Ракет: %d/%d" % [missiles_defeated, missiles_to_defeat]
+    health_label.text = "HP: %d/%d" % [current_health, max_health]
+    missiles_label.text = "Пропущено: %d/%d | Уничтожено: %d" % [missiles_missed, max_missiles_missed, missiles_destroyed]
 
 func game_over():
-	var game_over_screen = preload("res://scenes/ui/GameOverScreen.tscn").instantiate()
-	get_tree().root.add_child(game_over_screen)
-	get_tree().paused = true
-
-func victory():
-	var victory_screen = preload("res://scenes/ui/VictoryScreen.tscn").instantiate()
-	victory_screen.current_level = get_tree().current_scene.name
-	get_tree().root.add_child(victory_screen)
-	get_tree().paused = true
+    get_tree().change_scene_to_file("res://scenes/GameOverScreen.tscn")
 
 func _on_shoot_timer_timeout():
-	can_shoot = true
+    can_shoot = true
